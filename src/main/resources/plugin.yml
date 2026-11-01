@@ -1,0 +1,19 @@
+name: Treb3rAntiCheater
+version: 1.0.0
+main: com.argon.treb3r.Treb3rAntiCheater
+api-version: '1.21'
+description: High-performance occlusion culling anti-ESP engine for Paper 1.21.11
+author: c4
+commands:
+  treber:
+    description: Manage Treb3rAntiCheater
+    aliases: [treb3r, tac, antiesp]
+    permission: treb3r.admin
+    usage: /<command> [reload|status]
+permissions:
+  treb3r.admin:
+    description: Permission to manage Treb3rAntiCheater
+    default: op
+  treb3r.bypass:
+    description: Bypass Anti-ESP occlusion checks
+    default: false

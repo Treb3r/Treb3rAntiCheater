@@ -1,0 +1,23 @@
+# Treb3rAntiCheater Configuration
+# Hardened Anti-ESP engine for Paper 1.21.11
+
+# Radius in blocks around player to check entities (entities beyond this are automatically occluded)
+max-tracking-distance: 48.0
+
+# Distance in blocks under which targets bypass wall checks (0.0 = strict occlusion even point-blank)
+near-distance: 0.0
+
+# Number of tick slices (1 = every tick 100% real-time, 2 = 50% CPU load)
+time-slices: 1
+
+# Respect vanilla glowing mechanics (spectral arrows, bells, glow potions)
+bypass-on-glowing: true
+
+# Ticks both attacker and victim remain mutually visible after a hit (30 ticks = 1.5s)
+combat-grace-ticks: 30
+
+# Entities to cull through walls
+hide-players: true
+hide-monsters: true
+hide-animals: false
+hide-misc: true
