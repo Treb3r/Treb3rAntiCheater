@@ -32,6 +32,44 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class OcclusionEngine implements Runnable {
 
+    private static final boolean[] IGNORED_MATERIALS = new boolean[Material.values().length];
+    private static final boolean[] HOLE_CAPABLE_MATERIALS = new boolean[Material.values().length];
+
+    static {
+        for (Material mat : Material.values()) {
+            if (mat.isAir()) {
+                IGNORED_MATERIALS[mat.ordinal()] = true;
+                continue;
+            }
+            String name = mat.name();
+            if (name.contains("GLASS") ||
+                name.contains("BARS") ||
+                name.contains("CHAIN") ||
+                name.contains("GRATE") ||
+                name.contains("ROD") ||
+                name.endsWith("_FENCE") ||
+                name.endsWith("_FENCE_GATE") ||
+                name.endsWith("_LEAVES") ||
+                name.contains("LANTERN") ||
+                name.equals("BELL") ||
+                name.contains("AMETHYST") ||
+                name.equals("COBWEB") ||
+                name.equals("SCAFFOLDING") ||
+                name.equals("TRIPWIRE") ||
+                name.equals("STRING") ||
+                name.equals("BARRIER") ||
+                name.equals("LIGHT")) {
+                IGNORED_MATERIALS[mat.ordinal()] = true;
+            }
+
+            if (name.endsWith("_DOOR") || name.endsWith("_TRAPDOOR") || name.equals("CHEST") ||
+                name.equals("TRAPPED_CHEST") || name.equals("ENDER_CHEST") || name.endsWith("_SLAB") ||
+                name.endsWith("_STAIRS") || name.equals("DECORATED_POT")) {
+                HOLE_CAPABLE_MATERIALS[mat.ordinal()] = true;
+            }
+        }
+    }
+
     private final Treb3rAntiCheater plugin;
     private final NametagDisplayManager nametagManager;
 
@@ -40,6 +78,7 @@ public class OcclusionEngine implements Runnable {
     private final Map<UUID, Integer> clientCameraModes = new ConcurrentHashMap<>();
     private final Map<UUID, Map<UUID, Long>> entityHysteresis = new ConcurrentHashMap<>();
     private final Map<UUID, Map<UUID, Long>> playerHysteresis = new ConcurrentHashMap<>();
+    private final Map<UUID, Set<UUID>> viewerRevealedEntities = new ConcurrentHashMap<>();
 
     private long currentTick = 0;
 
@@ -266,31 +305,48 @@ public class OcclusionEngine implements Runnable {
                 }
             }
 
-            // 2. MONSTERS, ANIMALS, MISC (ITEMS, ARMOR STANDS) OCCLUSION (Throttled to alternating ticks for optimal CPU efficiency)
-            if ((hideMonsters || hideAnimals || hideMisc) && (currentTick % 2 == 0)) {
-                double entityRadius = maxDist;
+            // 2. MONSTERS, ANIMALS, MISC OCCLUSION (Sweep every 3 ticks, full tracking radius)
+            if ((hideMonsters || hideAnimals || hideMisc) && (currentTick % 3 == 0)) {
+                double entityRadius = Math.max(maxDist, 64.0);
                 Collection<Entity> nearby = viewer.world.getNearbyEntities(viewer.eyeLoc, entityRadius, entityRadius, entityRadius);
                 Map<UUID, Long> viewerHysteresis = entityHysteresis.computeIfAbsent(viewer.uuid, k -> new ConcurrentHashMap<>());
+                Set<UUID> previouslyRevealed = viewerRevealedEntities.computeIfAbsent(viewer.uuid, k -> ConcurrentHashMap.newKeySet());
+                Set<UUID> currentPassRevealed = new HashSet<>();
 
                 for (Entity entity : nearby) {
                     if (entity instanceof Player || entity.equals(viewerPlayer)) continue;
                     if (!shouldFilter(entity, hideMonsters, hideAnimals, hideMisc)) continue;
 
-                    boolean visible = evaluateEntityVisibility(viewer, entity);
                     UUID entId = entity.getUniqueId();
+                    boolean visible = evaluateEntityVisibility(viewer, entity);
 
                     if (visible) {
-                        viewerHysteresis.put(entId, currentTick + 4);
+                        viewerHysteresis.put(entId, currentTick + 6);
                         reveal(viewerPlayer, entity);
+                        currentPassRevealed.add(entId);
                     } else {
                         Long grace = viewerHysteresis.get(entId);
                         if (grace != null && currentTick <= grace) {
                             reveal(viewerPlayer, entity);
+                            currentPassRevealed.add(entId);
                         } else {
                             conceal(viewerPlayer, entity);
                         }
                     }
                 }
+
+                // Strictly conceal any entity that was previously shown but is no longer visible/in-range
+                previouslyRevealed.removeIf(oldId -> {
+                    if (!currentPassRevealed.contains(oldId)) {
+                        Entity e = plugin.getServer().getEntity(oldId);
+                        if (e != null && e.isValid()) {
+                            conceal(viewerPlayer, e);
+                        }
+                        return true;
+                    }
+                    return false;
+                });
+                previouslyRevealed.addAll(currentPassRevealed);
             }
         }
     }
@@ -472,7 +528,14 @@ public class OcclusionEngine implements Runnable {
         Vector top = new Vector(box.getCenterX(), box.getMaxY() - 0.05, box.getCenterZ());
         if (isRayClear(world, eyeLoc, start, top)) return true;
 
-        // 4. Perimeter sampling for narrow slits
+        // Early-out: if entity is further than 5 blocks and both center & top were blocked,
+        // it is behind solid terrain (caves, deepslate, walls). Skip expensive perimeter rays!
+        double distSq = eyeLoc.distanceSquared(entity.getLocation());
+        if (distSq > 25.0) {
+            return false;
+        }
+
+        // 4. Perimeter sampling for point-blank peekers & narrow slits (< 5m)
         double minX = box.getMinX() + 0.03;
         double maxX = box.getMaxX() - 0.03;
         double minZ = box.getMinZ() + 0.03;
@@ -533,6 +596,11 @@ public class OcclusionEngine implements Runnable {
                 return false;
             }
 
+            // O(1) Fast Exit: If block cannot have holes/apertures (stone, deepslate, dirt, etc.), immediately blocked!
+            if (!HOLE_CAPABLE_MATERIALS[hitBlock.getType().ordinal()]) {
+                return false;
+            }
+
             // Check if ray struck through a hole/aperture in this block
             if (isHitInsideHole(hitBlock, hitPos, dir)) {
                 // Ray pierced a hole (e.g. window in top half of door or open trapdoor)!
@@ -573,28 +641,7 @@ public class OcclusionEngine implements Runnable {
         if (block.isPassable()) {
             return true;
         }
-        Material mat = block.getType();
-        if (mat.isAir()) {
-            return true;
-        }
-        String name = mat.name();
-        return name.contains("GLASS") ||
-               name.contains("BARS") ||
-               name.contains("CHAIN") ||
-               name.contains("GRATE") ||
-               name.contains("ROD") ||
-               name.endsWith("_FENCE") ||
-               name.endsWith("_FENCE_GATE") ||
-               name.endsWith("_LEAVES") ||
-               name.contains("LANTERN") ||
-               name.equals("BELL") ||
-               name.contains("AMETHYST") ||
-               name.equals("COBWEB") ||
-               name.equals("SCAFFOLDING") ||
-               name.equals("TRIPWIRE") ||
-               name.equals("STRING") ||
-               name.equals("BARRIER") ||
-               name.equals("LIGHT");
+        return IGNORED_MATERIALS[block.getType().ordinal()];
     }
 
     /**

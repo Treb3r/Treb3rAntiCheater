@@ -5,8 +5,8 @@
 # 1. Anti-ESP & Occlusion Culling
 # ==========================================
 
-# Radius in blocks around player to check entities (entities beyond this are automatically occluded)
-max-tracking-distance: 48.0
+# Radius in blocks around player to check entities (covers Paper's 64-block monster tracking range)
+max-tracking-distance: 64.0
 
 # Distance in blocks under which targets bypass wall checks (0.0 = strict occlusion even point-blank)
 near-distance: 0.0
