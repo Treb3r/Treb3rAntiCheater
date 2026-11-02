@@ -44,7 +44,5 @@ anti-xray:
   # Block radius around mined blocks to update and reveal legitimate ores
   update-radius: 2
 
-  # List of worlds where Anti-Xray is disabled (e.g. spawn, creative, lobby)
-  excluded-worlds:
-    - world_the_end
-    - lobby
+  # List of worlds where Anti-Xray is disabled (empty by default = protects all worlds)
+  excluded-worlds: []
