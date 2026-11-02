@@ -54,6 +54,14 @@ anti-freecam:
   # Enable protection against Freecam exploits (base/mine scouting & remote clicking)
   enabled: true
 
+  # Active Camera Snap: Periodically sends ClientboundSetCameraPacket to sync the client camera to the player.
+  # For legitimate players, this is completely imperceptible. For Freecam users with detached cameras,
+  # it snaps the detached camera back to the body, preventing remote base scouting.
+  camera-snap:
+    enabled: true
+    # Interval in ticks between camera synchronization probes (20 ticks = 1 second)
+    interval-ticks: 20
+
   # Block opening containers, breaking blocks, and damaging entities through solid walls
   prevent-interact-through-walls: true
 

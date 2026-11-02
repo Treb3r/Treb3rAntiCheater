@@ -422,13 +422,13 @@ public class OcclusionEngine implements Runnable {
         if (isRayClear(world, eyeLoc, start, chest)) return true;
 
         // 3. Frustum / Cone Pruning (Behind-the-back culling)
-        // If target is behind viewer's back (>115 degrees off-axis) and not in F5 camera mode,
-        // they cannot be seen in 1st person. Skip all fine subdivision rays!
+        // If target is behind viewer's back (> 98 degrees off-axis) and not in F5 camera mode,
+        // they cannot be seen in 1st person. Strictly hides targets outside legitimate FOV!
         Integer reportedCam = clientCameraModes.get(viewer.uuid);
         boolean isF5 = reportedCam != null && reportedCam != 0;
         if (!isF5) {
             Vector toCenter = center.clone().subtract(start).normalize();
-            if (lookDir.dot(toCenter) < -0.38) {
+            if (lookDir.dot(toCenter) < -0.15) {
                 return false;
             }
         }
@@ -522,6 +522,19 @@ public class OcclusionEngine implements Runnable {
 
         // 2. Center of entity
         Vector center = box.getCenter();
+
+        // Frustum / Field of View Culling:
+        // Strictly hides entities outside the player's legitimate view cone (> 98 degrees off look axis).
+        // Cheaters flying Freecam behind their back cannot see any mobs or entities.
+        Integer reportedCam = clientCameraModes.get(viewer.uuid);
+        boolean isF5 = reportedCam != null && reportedCam != 0;
+        if (!isF5) {
+            Vector toCenter = center.clone().subtract(start).normalize();
+            if (lookDir.dot(toCenter) < -0.15) {
+                return false;
+            }
+        }
+
         if (isRayClear(world, eyeLoc, start, center)) return true;
 
         // 3. Top of entity

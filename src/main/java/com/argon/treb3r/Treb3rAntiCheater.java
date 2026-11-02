@@ -42,6 +42,7 @@ public class Treb3rAntiCheater extends JavaPlugin implements Listener, CommandEx
 
     private OcclusionEngine engine;
     private AntiXrayEngine antiXrayEngine;
+    private AntiFreecamEngine antiFreecamEngine;
     private BukkitTask task;
 
     @Override
@@ -56,6 +57,9 @@ public class Treb3rAntiCheater extends JavaPlugin implements Listener, CommandEx
 
         antiXrayEngine = new AntiXrayEngine(this);
         antiXrayEngine.init();
+
+        antiFreecamEngine = new AntiFreecamEngine(this);
+        antiFreecamEngine.init();
 
         // Register Camera Communication Channel (Companion / Client Mod support)
         getServer().getMessenger().registerIncomingPluginChannel(this, CAMERA_CHANNEL, (channel, player, message) -> {
@@ -81,6 +85,9 @@ public class Treb3rAntiCheater extends JavaPlugin implements Listener, CommandEx
         if (engine != null) {
             engine.restoreAll();
         }
+        if (antiFreecamEngine != null) {
+            antiFreecamEngine.stop();
+        }
         purgeOrphanTextDisplays();
         getServer().getMessenger().unregisterIncomingPluginChannel(this);
         getServer().getMessenger().unregisterOutgoingPluginChannel(this);
@@ -89,7 +96,7 @@ public class Treb3rAntiCheater extends JavaPlugin implements Listener, CommandEx
 
     public void loadConfiguration() {
         reloadConfig();
-        maxTrackingDistance = getConfig().getDouble("max-tracking-distance", 48.0);
+        maxTrackingDistance = getConfig().getDouble("max-tracking-distance", 64.0);
         nearDistance = getConfig().getDouble("near-distance", 0.0);
         timeSlices = getConfig().getInt("time-slices", 1);
         hidePlayers = getConfig().getBoolean("hide-players", true);
@@ -105,6 +112,9 @@ public class Treb3rAntiCheater extends JavaPlugin implements Listener, CommandEx
 
         if (antiXrayEngine != null) {
             antiXrayEngine.reload();
+        }
+        if (antiFreecamEngine != null) {
+            antiFreecamEngine.reload();
         }
     }
 
@@ -139,43 +149,8 @@ public class Treb3rAntiCheater extends JavaPlugin implements Listener, CommandEx
         }
     }
 
-    @EventHandler(priority = EventPriority.LOW)
-    public void onAntiFreecamInteract(PlayerInteractEvent event) {
-        if (!antiFreecamEnabled || !preventInteractThroughWalls || engine == null) return;
-        if (event.getClickedBlock() == null) return;
-        Player player = event.getPlayer();
-        if (!engine.canPlayerReachBlock(player, event.getClickedBlock(), maxReachDistance)) {
-            event.setCancelled(true);
-        }
-    }
-
-    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
-    public void onAntiFreecamBreak(BlockBreakEvent event) {
-        if (!antiFreecamEnabled || !preventInteractThroughWalls || engine == null) return;
-        Player player = event.getPlayer();
-        if (!engine.canPlayerReachBlock(player, event.getBlock(), maxReachDistance)) {
-            event.setCancelled(true);
-        }
-    }
-
-    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
-    public void onAntiFreecamEntityInteract(PlayerInteractEntityEvent event) {
-        if (!antiFreecamEnabled || !preventInteractThroughWalls || engine == null) return;
-        Player player = event.getPlayer();
-        if (!engine.canPlayerReachEntity(player, event.getRightClicked(), maxReachDistance)) {
-            event.setCancelled(true);
-        }
-    }
-
-    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
-    public void onAntiFreecamDamage(EntityDamageByEntityEvent event) {
-        if (!antiFreecamEnabled || !preventInteractThroughWalls || engine == null) return;
-        if (event.getDamager() instanceof Player) {
-            Player player = (Player) event.getDamager();
-            if (!engine.canPlayerReachEntity(player, event.getEntity(), maxReachDistance)) {
-                event.setCancelled(true);
-            }
-        }
+    public OcclusionEngine getEngine() {
+        return engine;
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
