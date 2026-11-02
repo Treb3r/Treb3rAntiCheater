@@ -10,6 +10,9 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.file.Files;
+import java.util.HashSet;
+import java.util.Locale;
+import java.util.Set;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ForkJoinPool;
 
@@ -26,6 +29,7 @@ public class AntiXrayEngine implements Listener {
     private int engineMode;
     private boolean lavaObscures;
     private int updateRadius;
+    private final Set<String> excludedWorlds = new HashSet<>();
 
     public AntiXrayEngine(Treb3rAntiCheater plugin) {
         this.plugin = plugin;
@@ -50,9 +54,16 @@ public class AntiXrayEngine implements Listener {
         this.lavaObscures = plugin.getConfig().getBoolean("anti-xray.lava-obscures", true);
         this.updateRadius = plugin.getConfig().getInt("anti-xray.update-radius", 2);
 
-        if (enabled) {
-            for (World world : plugin.getServer().getWorlds()) {
+        this.excludedWorlds.clear();
+        for (String w : plugin.getConfig().getStringList("anti-xray.excluded-worlds")) {
+            this.excludedWorlds.add(w.toLowerCase(Locale.ROOT));
+        }
+
+        for (World world : plugin.getServer().getWorlds()) {
+            if (enabled && !excludedWorlds.contains(world.getName().toLowerCase(Locale.ROOT))) {
                 injectWorld(world);
+            } else {
+                restoreWorld(world);
             }
         }
     }
@@ -66,6 +77,13 @@ public class AntiXrayEngine implements Listener {
 
     public boolean injectWorld(World world) {
         if (!enabled) return false;
+
+        String worldName = world.getName().toLowerCase(Locale.ROOT);
+        if (excludedWorlds.contains(worldName)) {
+            restoreWorld(world);
+            plugin.getLogger().info("Anti-Xray skipped for excluded world: " + world.getName());
+            return false;
+        }
 
         try {
             // 1. Get CraftWorld.getHandle() -> ServerLevel
@@ -138,6 +156,21 @@ public class AntiXrayEngine implements Listener {
             plugin.getLogger().warning("Failed to inject packet Anti-Xray into world " + world.getName() + ": " + t.getMessage());
             return false;
         }
+    }
+
+    public void restoreWorld(World world) {
+        try {
+            Method getHandleMethod = world.getClass().getMethod("getHandle");
+            Object serverLevel = getHandleMethod.invoke(world);
+
+            Field controllerField = findField(serverLevel.getClass(), "chunkPacketBlockController");
+            if (controllerField == null) return;
+            controllerField.setAccessible(true);
+
+            Class<?> noOpClass = Class.forName("io.papermc.paper.antixray.ChunkPacketBlockController");
+            Field noOpField = noOpClass.getField("NO_OPERATION_INSTANCE");
+            controllerField.set(serverLevel, noOpField.get(null));
+        } catch (Throwable ignored) {}
     }
 
     private Executor getWorkerPool() {
