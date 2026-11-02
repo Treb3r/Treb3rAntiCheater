@@ -1,5 +1,9 @@
 # Treb3rAntiCheater Configuration
-# Hardened Anti-ESP engine for Paper 1.21.11
+# Hardened Anti-ESP & Anti-Xray engine for Paper 1.21.x
+
+# ==========================================
+# 1. Anti-ESP & Occlusion Culling
+# ==========================================
 
 # Radius in blocks around player to check entities (entities beyond this are automatically occluded)
 max-tracking-distance: 48.0
@@ -21,3 +25,21 @@ hide-players: true
 hide-monsters: true
 hide-animals: false
 hide-misc: true
+
+# ==========================================
+# 2. Packet-Level Anti-Xray Engine
+# ==========================================
+anti-xray:
+  # Enable packet-level ore obfuscation directly in memory
+  enabled: true
+
+  # Engine Mode:
+  # 1 = Hide covered ores as stone / deepslate / netherrack
+  # 2 = Obfuscate with random fake ores (blinds X-Ray & Freecam cheats with noise)
+  engine-mode: 2
+
+  # Obscure ores beneath lava pools
+  lava-obscures: true
+
+  # Block radius around mined blocks to update and reveal legitimate ores
+  update-radius: 2

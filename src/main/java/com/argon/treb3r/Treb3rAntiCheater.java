@@ -33,6 +33,7 @@ public class Treb3rAntiCheater extends JavaPlugin implements Listener, CommandEx
     private int combatGraceTicks;
 
     private OcclusionEngine engine;
+    private AntiXrayEngine antiXrayEngine;
     private BukkitTask task;
 
     @Override
@@ -44,6 +45,9 @@ public class Treb3rAntiCheater extends JavaPlugin implements Listener, CommandEx
 
         engine = new OcclusionEngine(this);
         startTask();
+
+        antiXrayEngine = new AntiXrayEngine(this);
+        antiXrayEngine.init();
 
         // Register Camera Communication Channel (Companion / Client Mod support)
         getServer().getMessenger().registerIncomingPluginChannel(this, CAMERA_CHANNEL, (channel, player, message) -> {
@@ -86,6 +90,9 @@ public class Treb3rAntiCheater extends JavaPlugin implements Listener, CommandEx
         hideMisc = getConfig().getBoolean("hide-misc", true);
         bypassOnGlowing = getConfig().getBoolean("bypass-on-glowing", true);
         combatGraceTicks = getConfig().getInt("combat-grace-ticks", 30);
+        if (antiXrayEngine != null) {
+            antiXrayEngine.reload();
+        }
     }
 
     private void startTask() {
@@ -203,6 +210,9 @@ public class Treb3rAntiCheater extends JavaPlugin implements Listener, CommandEx
             sender.sendMessage("§7Hide Misc: §f" + hideMisc);
             sender.sendMessage("§7Bypass On Glowing: §f" + bypassOnGlowing);
             sender.sendMessage("§7Combat Grace: §f" + combatGraceTicks + " ticks");
+            if (antiXrayEngine != null) {
+                sender.sendMessage("§7Anti-Xray: " + (antiXrayEngine.isEnabled() ? "§aEnabled (Engine Mode " + antiXrayEngine.getEngineMode() + ")" : "§cDisabled"));
+            }
             return true;
         }
 
