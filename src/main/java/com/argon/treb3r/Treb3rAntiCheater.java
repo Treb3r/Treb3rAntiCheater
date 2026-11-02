@@ -12,7 +12,10 @@ import org.bukkit.entity.TextDisplay;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
+import org.bukkit.event.player.PlayerInteractEntityEvent;
+import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.world.ChunkLoadEvent;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -31,6 +34,11 @@ public class Treb3rAntiCheater extends JavaPlugin implements Listener, CommandEx
     private boolean hideMisc;
     private boolean bypassOnGlowing;
     private int combatGraceTicks;
+
+    // Anti-Freecam Wall & Reach Settings
+    private boolean antiFreecamEnabled;
+    private boolean preventInteractThroughWalls;
+    private double maxReachDistance;
 
     private OcclusionEngine engine;
     private AntiXrayEngine antiXrayEngine;
@@ -90,6 +98,11 @@ public class Treb3rAntiCheater extends JavaPlugin implements Listener, CommandEx
         hideMisc = getConfig().getBoolean("hide-misc", true);
         bypassOnGlowing = getConfig().getBoolean("bypass-on-glowing", true);
         combatGraceTicks = getConfig().getInt("combat-grace-ticks", 30);
+
+        antiFreecamEnabled = getConfig().getBoolean("anti-freecam.enabled", true);
+        preventInteractThroughWalls = getConfig().getBoolean("anti-freecam.prevent-interact-through-walls", true);
+        maxReachDistance = getConfig().getDouble("anti-freecam.max-reach-distance", 5.2);
+
         if (antiXrayEngine != null) {
             antiXrayEngine.reload();
         }
@@ -126,8 +139,47 @@ public class Treb3rAntiCheater extends JavaPlugin implements Listener, CommandEx
         }
     }
 
-    @EventHandler(priority = EventPriority.MONITOR)
-    public void onPlayerInteract(org.bukkit.event.player.PlayerInteractEvent event) {
+    @EventHandler(priority = EventPriority.LOW)
+    public void onAntiFreecamInteract(PlayerInteractEvent event) {
+        if (!antiFreecamEnabled || !preventInteractThroughWalls || engine == null) return;
+        if (event.getClickedBlock() == null) return;
+        Player player = event.getPlayer();
+        if (!engine.canPlayerReachBlock(player, event.getClickedBlock(), maxReachDistance)) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+    public void onAntiFreecamBreak(BlockBreakEvent event) {
+        if (!antiFreecamEnabled || !preventInteractThroughWalls || engine == null) return;
+        Player player = event.getPlayer();
+        if (!engine.canPlayerReachBlock(player, event.getBlock(), maxReachDistance)) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+    public void onAntiFreecamEntityInteract(PlayerInteractEntityEvent event) {
+        if (!antiFreecamEnabled || !preventInteractThroughWalls || engine == null) return;
+        Player player = event.getPlayer();
+        if (!engine.canPlayerReachEntity(player, event.getRightClicked(), maxReachDistance)) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+    public void onAntiFreecamDamage(EntityDamageByEntityEvent event) {
+        if (!antiFreecamEnabled || !preventInteractThroughWalls || engine == null) return;
+        if (event.getDamager() instanceof Player) {
+            Player player = (Player) event.getDamager();
+            if (!engine.canPlayerReachEntity(player, event.getEntity(), maxReachDistance)) {
+                event.setCancelled(true);
+            }
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onPlayerInteract(PlayerInteractEvent event) {
         if (engine == null) return;
         Player player = event.getPlayer();
         Location hitLoc = event.getInteractionPoint();
@@ -213,11 +265,24 @@ public class Treb3rAntiCheater extends JavaPlugin implements Listener, CommandEx
             if (antiXrayEngine != null) {
                 sender.sendMessage("§7Anti-Xray: " + (antiXrayEngine.isEnabled() ? "§aEnabled (Engine Mode " + antiXrayEngine.getEngineMode() + ")" : "§cDisabled"));
             }
+            sender.sendMessage("§7Anti-Freecam: " + (antiFreecamEnabled ? "§aEnabled (Reach: " + maxReachDistance + "m, Wall-Block: " + preventInteractThroughWalls + ")" : "§cDisabled"));
             return true;
         }
 
         sender.sendMessage("§eTreb3rAntiCheater commands: /treber reload, /treber status");
         return true;
+    }
+
+    public boolean isAntiFreecamEnabled() {
+        return antiFreecamEnabled;
+    }
+
+    public boolean isPreventInteractThroughWalls() {
+        return preventInteractThroughWalls;
+    }
+
+    public double getMaxReachDistance() {
+        return maxReachDistance;
     }
 
     public double getMaxTrackingDistance() {

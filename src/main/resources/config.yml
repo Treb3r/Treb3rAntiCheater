@@ -46,3 +46,17 @@ anti-xray:
 
   # List of worlds where Anti-Xray is disabled (empty by default = protects all worlds)
   excluded-worlds: []
+
+# ==========================================
+# 3. Anti-Freecam Protection
+# ==========================================
+anti-freecam:
+  # Enable protection against Freecam exploits (base/mine scouting & remote clicking)
+  enabled: true
+
+  # Block opening containers, breaking blocks, and damaging entities through solid walls
+  prevent-interact-through-walls: true
+
+  # Maximum physical interaction reach from player's eye location in blocks
+  max-reach-distance: 5.2
+

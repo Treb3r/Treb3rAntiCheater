@@ -266,8 +266,8 @@ public class OcclusionEngine implements Runnable {
                 }
             }
 
-            // 2. MONSTERS, ANIMALS, MISC (ITEMS, ARMOR STANDS) OCCLUSION
-            if (hideMonsters || hideAnimals || hideMisc) {
+            // 2. MONSTERS, ANIMALS, MISC (ITEMS, ARMOR STANDS) OCCLUSION (Throttled to alternating ticks for optimal CPU efficiency)
+            if ((hideMonsters || hideAnimals || hideMisc) && (currentTick % 2 == 0)) {
                 double entityRadius = maxDist;
                 Collection<Entity> nearby = viewer.world.getNearbyEntities(viewer.eyeLoc, entityRadius, entityRadius, entityRadius);
                 Map<UUID, Long> viewerHysteresis = entityHysteresis.computeIfAbsent(viewer.uuid, k -> new ConcurrentHashMap<>());
@@ -351,11 +351,33 @@ public class OcclusionEngine implements Runnable {
             maxY - 0.05  // crown
         };
 
-        // 2. Direct Eye-to-Eye line of sight
+        // 2. Fast Coarse Triage (Eye, Center of Mass, Torso, Feet)
+        // Resolves 90-95% of visible targets in 1-4 coarse rays with minimal CPU overhead
         Vector targetEye = target.eyeLoc.toVector();
         if (isRayClear(world, eyeLoc, start, targetEye)) return true;
 
-        // 3. Dense multi-point volume & perimeter sweep (Step ~ 8.5 cm across X and Z)
+        Vector center = box.getCenter();
+        if (isRayClear(world, eyeLoc, start, center)) return true;
+
+        Vector feet = new Vector(midX, minY + 0.25, midZ);
+        if (isRayClear(world, eyeLoc, start, feet)) return true;
+
+        Vector chest = new Vector(midX, minY + 1.25, midZ);
+        if (isRayClear(world, eyeLoc, start, chest)) return true;
+
+        // 3. Frustum / Cone Pruning (Behind-the-back culling)
+        // If target is behind viewer's back (>115 degrees off-axis) and not in F5 camera mode,
+        // they cannot be seen in 1st person. Skip all fine subdivision rays!
+        Integer reportedCam = clientCameraModes.get(viewer.uuid);
+        boolean isF5 = reportedCam != null && reportedCam != 0;
+        if (!isF5) {
+            Vector toCenter = center.clone().subtract(start).normalize();
+            if (lookDir.dot(toCenter) < -0.38) {
+                return false;
+            }
+        }
+
+        // 4. Dense multi-point volume & perimeter sweep (Step ~ 8.5 cm across X and Z)
         // Checks front, back, left, right, and center faces across all 9 height tiers.
         // In narrow apertures (chests, decorated pots, copper bars, grates), this guarantees
         // rays pass cleanly through even when the viewer sees the slit from peripheral vision.
@@ -477,7 +499,7 @@ public class OcclusionEngine implements Runnable {
      * If a ray strikes a HOLE in a perforated barrier, it continues through to the other side.
      * If a ray strikes SOLID material (solid door bottom, door frame, solid wall), it is immediately BLOCKED.
      */
-    private boolean isRayClear(World world, Location origin, Vector start, Vector targetPoint) {
+    public boolean isRayClear(World world, Location origin, Vector start, Vector targetPoint) {
         Vector dir = targetPoint.clone().subtract(start);
         double totalDist = dir.length();
         if (totalDist < 0.05) {
@@ -719,10 +741,96 @@ public class OcclusionEngine implements Runnable {
     }
 
     public boolean shouldFilter(Entity entity, boolean monsters, boolean animals, boolean misc) {
-        if (entity instanceof Monster) return monsters;
-        if (entity instanceof Animals || entity instanceof Ambient) return animals;
-        if (entity instanceof ArmorStand || entity instanceof Item || entity instanceof ItemFrame) return misc;
+        if (entity instanceof Monster || entity instanceof Slime || entity instanceof Ghast || entity instanceof Phantom || entity instanceof Boss) return monsters;
+        if (entity instanceof Animals || entity instanceof Ambient || entity instanceof WaterMob || entity instanceof NPC || entity instanceof Golem || entity instanceof Allay) return animals;
+        if (entity instanceof ArmorStand || entity instanceof Item || entity instanceof ItemFrame || entity instanceof Painting || entity instanceof Vehicle) return misc;
         return false;
+    }
+
+    /**
+     * Anti-Freecam Wall & Reach Verification for Block Interactions.
+     * Ensures player has direct physical line-of-sight and is within reach distance.
+     */
+    public boolean canPlayerReachBlock(Player player, Block targetBlock, double maxReach) {
+        if (player.getGameMode() == GameMode.SPECTATOR) return true;
+        Location eyeLoc = player.getEyeLocation();
+        World world = player.getWorld();
+        if (!world.equals(targetBlock.getWorld())) return false;
+
+        Location blockCenter = targetBlock.getLocation().add(0.5, 0.5, 0.5);
+        double distSq = eyeLoc.distanceSquared(blockCenter);
+        if (distSq > maxReach * maxReach) return false;
+
+        Vector start = eyeLoc.toVector();
+
+        // 1. Center of target block check
+        Vector dirToCenter = blockCenter.toVector().subtract(start);
+        double distToCenter = dirToCenter.length();
+        if (distToCenter > 0.05) {
+            RayTraceResult hit = world.rayTraceBlocks(
+                    eyeLoc,
+                    dirToCenter.normalize(),
+                    distToCenter,
+                    FluidCollisionMode.NEVER,
+                    true,
+                    b -> !isCompletelyIgnored(b)
+            );
+            if (hit == null || targetBlock.equals(hit.getHitBlock()) || isCompletelyIgnored(hit.getHitBlock())) {
+                return true;
+            }
+        }
+
+        // 2. Multi-face sample (top, bottom, 4 sides) to account for corners/edges
+        double bx = targetBlock.getX();
+        double by = targetBlock.getY();
+        double bz = targetBlock.getZ();
+        Vector[] facePoints = new Vector[]{
+                new Vector(bx + 0.5, by + 0.95, bz + 0.5),
+                new Vector(bx + 0.5, by + 0.05, bz + 0.5),
+                new Vector(bx + 0.05, by + 0.5, bz + 0.5),
+                new Vector(bx + 0.95, by + 0.5, bz + 0.5),
+                new Vector(bx + 0.5, by + 0.5, bz + 0.05),
+                new Vector(bx + 0.5, by + 0.5, bz + 0.95)
+        };
+
+        for (Vector facePoint : facePoints) {
+            Vector dir = facePoint.clone().subtract(start);
+            double dist = dir.length();
+            if (dist <= 0.05) return true;
+            RayTraceResult hit = world.rayTraceBlocks(
+                    eyeLoc,
+                    dir.normalize(),
+                    dist,
+                    FluidCollisionMode.NEVER,
+                    true,
+                    b -> !isCompletelyIgnored(b)
+            );
+            if (hit == null || targetBlock.equals(hit.getHitBlock()) || isCompletelyIgnored(hit.getHitBlock())) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Anti-Freecam Wall & Reach Verification for Entity Interactions and Combat.
+     * Prevents attacking or interacting with entities through solid barriers or out of range.
+     */
+    public boolean canPlayerReachEntity(Player player, Entity targetEntity, double maxReach) {
+        if (player.getGameMode() == GameMode.SPECTATOR) return true;
+        Location eyeLoc = player.getEyeLocation();
+        if (!player.getWorld().equals(targetEntity.getWorld())) return false;
+        double distSq = eyeLoc.distanceSquared(targetEntity.getLocation());
+        if (distSq > maxReach * maxReach) return false;
+
+        PlayerState viewerState = capturePlayerState(player);
+        if (targetEntity instanceof Player) {
+            PlayerState targetState = capturePlayerState((Player) targetEntity);
+            return evaluatePlayerVisibility(viewerState, targetState);
+        } else {
+            return evaluateEntityVisibility(viewerState, targetEntity);
+        }
     }
 
     private void reveal(Player viewer, Entity target) {

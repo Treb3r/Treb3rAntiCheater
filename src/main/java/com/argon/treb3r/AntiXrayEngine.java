@@ -200,10 +200,31 @@ public class AntiXrayEngine implements Listener {
                         content = content.replace("engine-mode: 1", "engine-mode: 2");
                         changed = true;
                     }
+
+                    // Protect base storage & containers from Freecam & ChestESP
+                    String[] containerBlocks = new String[]{
+                            "shulker_box", "white_shulker_box", "orange_shulker_box", "magenta_shulker_box",
+                            "light_blue_shulker_box", "yellow_shulker_box", "lime_shulker_box", "pink_shulker_box",
+                            "gray_shulker_box", "light_gray_shulker_box", "cyan_shulker_box", "purple_shulker_box",
+                            "blue_shulker_box", "brown_shulker_box", "green_shulker_box", "red_shulker_box",
+                            "black_shulker_box", "furnace", "blast_furnace", "smoker", "hopper", "dispenser", "dropper"
+                    };
+                    if (content.contains("hidden-blocks:")) {
+                        StringBuilder toAdd = new StringBuilder();
+                        for (String block : containerBlocks) {
+                            if (!content.contains("- " + block)) {
+                                toAdd.append("\n    - ").append(block);
+                            }
+                        }
+                        if (toAdd.length() > 0) {
+                            content = content.replace("hidden-blocks:", "hidden-blocks:" + toAdd);
+                            changed = true;
+                        }
+                    }
                 }
                 if (changed) {
                     Files.writeString(configFile.toPath(), content);
-                    plugin.getLogger().info("Auto-synchronized Paper Anti-Xray settings in " + configFile.getPath());
+                    plugin.getLogger().info("Auto-synchronized Paper Anti-Xray & container security in " + configFile.getPath());
                 }
             }
         } catch (Throwable ignored) {}
